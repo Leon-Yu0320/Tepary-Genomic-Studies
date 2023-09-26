@@ -38,6 +38,22 @@ Tepary bean diversity panel includes **342 samples** for population genomic stud
   - [Annotate variants using VEP (Variant Effect Predictor)](#annotate-variants-using-vep-variant-effect-predictor)
   - [Build the phylogeny using IQtree](#build-the-phylogeny-using-iqtree)
   - [Build the PCA of panel](#build-the-pca-of-panel)
+  - [Population structural analysis (fastSTRUCTURE)](#population-structural-analysis-faststructure)
+    - [fastSTRUCTURE analysis using the same VCFs for tree construction](#faststructure-analysis-using-the-same-vcfs-for-tree-construction)
+  - [Population differentiation analysis](#population-differentiation-analysis)
+    - [Calculate the Fst score](#calculate-the-fst-score)
+    - [Pi score calcualation based on different sub-group accessions](#pi-score-calcualation-based-on-different-sub-group-accessions)
+      - [Extract samples to different sub-groups for comparison](#extract-samples-to-different-sub-groups-for-comparison)
+      - [Caculate the Pi value of selected samples](#caculate-the-pi-value-of-selected-samples)
+  - [Estimation of the effective population (Ne) size of tepary subgroup samples](#estimation-of-the-effective-population-ne-size-of-tepary-subgroup-samples)
+    - [Configure profiles](#configure-profiles)
+  - [Identification of selective-sweep in the population (Using the Vash server due to system configuration)](#identification-of-selective-sweep-in-the-population-using-the-vash-server-due-to-system-configuration)
+    - [Install SweeD](#install-sweed)
+    - [Configure profiles (input files)](#configure-profiles-input-files)
+    - [Caculate the windowsize for each chromsome](#caculate-the-windowsize-for-each-chromsome)
+    - [Transform data due to errors within VCFs](#transform-data-due-to-errors-within-vcfs)
+    - [Perfomrm the calculation](#perfomrm-the-calculation)
+    - [Reformat the files for visulization](#reformat-the-files-for-visulization)
 
 ## Varaints calling data process
 ### Download read from common beans as outgroup samples (speceis) for phylogeny
@@ -825,7 +841,7 @@ sudo docker run --rm -v $(pwd):/working-dir -w /working-dir ensemblorg/ensembl-v
 ```
 
 ## Build the phylogeny using IQtree
-**NOTE** THE first row of phylip file reprsesents the outgroup of TREE!
+**NOTE** THE first row of phylip file reprsesents outgroup species of the TREE!
 ```bash
 #!/bin/bash
 script_dir="/data/home/lyu/03_software/vcf2phylip"
@@ -859,3 +875,277 @@ gcta --bfile $PCA_dir/Tepary-tree.vcf.plink --make-grm --out $PCA_dir/Tepary-tre
 ### perform PCA by gcta program 
 gcta --grm $PCA_dir/Tepary-tree_grm --pca 3 --out $PCA_dir/Tepary-tree_grm.PCA
 ```
+
+## Population structural analysis (fastSTRUCTURE)
+
+### fastSTRUCTURE analysis using the same VCFs for tree construction
+```bash
+work_dir="/data/home/nelsonlab/tepary_DNA/11_STRUCTURE/01_Prune"
+index_dir="/data/home/nelsonlab/tepary_DNA/11_STRUCTURE"
+
+plink --vcf /Tepary-tree.vcf -recode12 --double-id --out TeparyBean-STRUCTURE
+
+### make bed file of the SVs
+plink --noweb --file TeparyBean-STRUCTURE --hwe 0.0001 --make-bed --out TeparyBean
+
+### build the loop the calculation under different K numbers
+for K in `seq 1 15`
+do
+	structure.py -K $K --input=TeparyBean --output=TeparyBean_output --cv=5 --prior=logistic & 
+done
+
+### selected model components the internal fastStructure script chooseK.py.
+chooseK.py --input=TeparyBean_output
+
+```
+Results shown below
+```
+Model complexity that maximizes marginal likelihood = 15
+Model components used to explain structure in data = 9
+```
+
+## Population differentiation analysis 
+###  Calculate the Fst score
+
+Calculate the Fst score for each SNP loci
+```bash
+##Calculate the Fst score for each SNP loci
+vcftools --vcf test.vcf \
+  --weir-fst-pop 1_population.txt \
+  --weir-fst-pop 2_population.txt  \
+  --out TeparyFst_single
+```
+
+Calculate the Fst score for each SNP loci based on region
+```bash
+SNP_dir="/data/home/nelsonlab/tepary_DNA/10_GWAS/03_MAF"
+Fst_dir="/data/home/nelsonlab/tepary_DNA/12_Fst"
+
+for i in $(seq -w 01 11); do
+  ##Calculate the Fst score for each SNP loci based on region
+  vcftools --vcf ${SNP_dir}/Chr$i.MAF-clean.vcf.gz  \
+    --weir-fst-pop ${Fst_dir}/1_population.txt \
+    --weir-fst-pop ${Fst_dir}/2_population.txt  \
+    --out ${Fst_dir}/TeparyFst_Chr$i_window.txt \
+    --fst-window-size 100000 --fst-window-step 20000
+done
+
+```
+
+### Pi score calcualation based on different sub-group accessions
+#### Extract samples to different sub-groups for comparison
+```bash
+SNP_dir="/data/home/nelsonlab/tepary_DNA/10_GWAS/03_MAF"
+Sub_pop_dir="/data/home/nelsonlab/tepary_DNA/13_Pi/01_VCFs"
+Fst_dir="/data/home/nelsonlab/tepary_DNA/12_Fst"
+
+for i in $(seq -w 01 11); do
+    bcftools view -S ${Fst_dir}/1_population.txt \
+      ${SNP_dir}/Chr$i.MAF-clean.vcf.gz | bgzip -@ 100 > ${Sub_pop_dir}/Chr$i.cultivar-clean.vcf.gz
+
+    bcftools view -S ${Fst_dir}/2_population.txt \
+      ${SNP_dir}/Chr$i.MAF-clean.vcf.gz | bgzip -@ 100 > ${Sub_pop_dir}/Chr$i.wild-clean.vcf.gz
+done
+
+```
+
+#### Caculate the Pi value of selected samples
+```bash
+Pi_dir="/data/home/nelsonlab/tepary_DNA/13_Pi"
+Sub_pop_dir="/data/home/nelsonlab/tepary_DNA/13_Pi/01_VCFs"
+
+### all samples included
+for i in $(seq -w 01 11); do
+	vcftools \
+	--gzvcf ${Sub_pop_dir}/Chr$i.all-clean.vcf.gz \
+	--window-pi 50000 --window-pi-step 5000 \
+	--out ${Pi_dir}/Chr$i.window_all-samples
+
+### Cultivar samples
+	vcftools \
+	--gzvcf ${Sub_pop_dir}/Chr$i.cultivar-clean.vcf.gz \
+	--window-pi 50000 --window-pi-step 5000 \
+	--out ${Pi_dir}/Chr$i.window_cultivar-samples
+
+### Wild samples
+	vcftools \
+	--gzvcf ${Sub_pop_dir}/Chr$i.wild-clean.vcf.gz \
+	--window-pi 50000 --window-pi-step 5000 \
+	--out ${Pi_dir}/Chr$i.window_wild-samples
+
+  awk 'BEGIN {OFS="\t"} NR == 1 {print $0, "Class"} NR > 1 {print $0, "All"}' ${Sub_pop_dir}/Chr$i.window_all-samples.pi
+  awk 'BEGIN {OFS="\t"} NR == 1 {print $0, "Class"} NR > 1 {print $0, "cultivar"}' ${Sub_pop_dir}/Chr$i.window_cultivar-samples.pi
+  awk 'BEGIN {OFS="\t"} NR == 1 {print $0, "Class"} NR > 1 {print $0, "wild"}' ${Sub_pop_dir}/Chr$i.window_wild-samples.pi
+
+  cat Chr$i* > Chr$i-combined-window.pi
+done
+```
+## Estimation of the effective population (Ne) size of tepary subgroup samples
+### Configure profiles
+```bash
+Sub_pop_dir="/data/home/nelsonlab/tepary_DNA/13_Pi/01_VCFs"
+Ne_dir="/data/home/nelsonlab/tepary_DNA/14_Ne"
+
+for i in $(seq -w 01 11); 
+do
+    ### smc++ vcf2smc my.data.vcf.gz out/chr1.smc.gz chr1 Pop1:S1,S2
+    smc++ vcf2smc ${Sub_pop_dir}/Chr$i.cultivar_New.vcf.vcf.gz \
+      --cores 40 \
+      ${Ne_dir}/Chr$i.cultivar-clean.smc.gz chr$i \
+      pop1:SRR11455,T_81,T_74,T_64,T_87,T_71,T_200,T_37,T_42,T_216,T_185,T_261,T_228,T_240
+
+      pop2:T_375,T_279,T_130,T_8,T_89,T_283,T_392,T_131,T_374,T_360,T_367,T_127,T_270,T_431
+
+
+    ### fit the module with estimation (Use a fixed mutation rate based on literature)
+    smc++ estimate -o Chr$i.cultivar/ 6.96e-9 ${Ne_dir}/Chr$i.cultivar-clean.smc.gz
+
+done
+
+```
+
+
+## Identification of selective-sweep in the population (Using the Vash server due to system configuration)
+### Install SweeD
+```bash
+#download
+git clone https://github.com/alachins/sweed
+#install
+cd sweed-master
+make -f Makefile.gcc (single thread version)
+make -f Makefile.PTHREADS.gcc (multi threads version)
+# add path
+mkdir bin
+ln $path/SweeD $path/bin/
+ln $path/SweeD-P $path/bin/
+echo "export PATH=$path/bin:$PATH" >> ~/.bash_profile
+```
+
+### Configure profiles (input files)
+SweedFinder format
+
+| Name | description |
+| ---- | ------ |
+| location： | chromosome posito |
+| x |  number of sequences carrying the derived allel |
+| n | number of valid sequences |
+| folded | numberic data |
+
+VCF format (For large population)
+
+### Caculate the windowsize for each chromsome
+The number defined the numbers of grid in each 1Mb genomic region
+We difined 20 windows each 1 Mb region (50Kb windowsize)
+```
+#Chr  size(bp) size(Mb) Size(Mb)*20 Grid numbers
+Chr01	56952050	56.95205	11390.41	1139
+Chr02	45193024	45.193024	9038.6048	904
+Chr03	44779988	44.779988	8955.9976	896
+Chr04	59168269	59.168269	11833.6538	1183
+Chr05	36973121	36.973121	7394.6242	739
+Chr06	32545300	32.5453	6509.06	651
+Chr07	44492343	44.492343	8898.4686	900
+Chr08	55222839	55.222839	11044.5678	1105
+Chr09	39636237	39.636237	7927.2474	793
+Chr10	40417611	40.417611	8083.5222	808
+Chr11	52098332	52.098332	10419.6664	1042
+```
+**Create tables to pass variables**
+```
+Chr01	1139
+Chr02	904
+Chr03	896
+Chr04	1183
+Chr05	739
+Chr06	651
+Chr07	900
+Chr08	1105
+Chr09	793
+Chr10	808
+Chr11	1042
+```
+
+### Transform data due to errors within VCFs
+```bash
+clean_VCFs="/mnt/Leonof/4_TeparyGenomics/01_VCFs/01_cleanVCFs"
+VCFs="/mnt/Leonof/4_TeparyGenomics/01_VCFs"
+
+for i in $(seq -w 01 11);
+do
+
+ ### for wild samples
+  plink --vcf ${VCFs}/Chr${i}.wild-clean.vcf \
+  --make-bed --double-id -out ${clean_VCFs}/Chr${i}.wild-clean_bfile
+
+  awk '{$1 = "Chr0" $1}1' ${clean_VCFs}/Chr${i}.wild-clean_bfile.bim > ${clean_VCFs}/Chr${i}.wild-clean_bfile.temp.bim
+  mv ${clean_VCFs}/Chr${i}.wild-clean_bfile.temp.bim ${clean_VCFs}/Chr${i}.wild-clean_bfile.bim
+
+  plink -bfile ${clean_VCFs}/Chr${i}.wild-clean_bfile \
+    --recode vcf-iid \
+    --allow-extra-chr \
+    --out ${clean_VCFs}/Chr${i}.wild_New.vcf
+
+ ### for cultivar samples
+  plink --vcf ${VCFs}/Chr${i}.cultivar-clean.vcf \
+  --make-bed --allow-extra-chr --double-id -out ${clean_VCFs}/Chr${i}.cultivar-clean_bfile
+
+   awk '{$1 = "Chr0" $1}1' ${clean_VCFs}/Chr${i}.wild-clean_bfile.bim > ${clean_VCFs}/Chr${i}.wild-clean_bfile.temp.bim
+  mv ${clean_VCFs}/Chr${i}.cultivar-clean_bfile.temp.bim ${clean_VCFs}/Chr${i}.cultivar-clean_bfile.bim
+
+  plink -bfile ${clean_VCFs}/Chr${i}.cultivar-clean_bfile \
+    --recode vcf-iid \
+    --allow-extra-chr \
+    --out ${clean_VCFs}/Chr${i}.cultivar_New.vcf
+done
+
+```
+
+### Perfomrm the calculation 
+```bash
+SweeD_dir="/home/liangyu/3_software/sweed"
+work_dir="/mnt/Leonof/4_TeparyGenomics/02_SweeD"
+VCF_dir="/mnt/Leonof/4_TeparyGenomics/01_VCFs/01_cleanVCFs"
+
+IFS=$'\n';
+for LINE in $(cat $work_dir/sample.list);
+do
+
+  ChrNumber=$(echo ${LINE} | awk '{ print $1}')
+	GridNumber=$(echo ${LINE} | awk '{ print $2}')
+
+    ### for wild sub-population
+    ${SweeD_dir}/SweeD -name Tepary-wild.${ChrNumber}.50kb \
+      -input ${VCF_dir}/${ChrNumber}.wild_New.vcf.vcf \
+      -grid $GridNumber \
+      -maf 0.05 \
+      -missing 0.1
+
+    ### for domesticated sub-population
+    ${SweeD_dir}/SweeD -name Tepary-cultivar.${ChrNumber}.50kb \
+      -input ${VCF_dir}/${ChrNumber}.cultivar_New.vcf.vcf \
+      -grid $GridNumber \
+      -maf 0.05 \
+      -missing 0.1
+done
+```
+
+### Reformat the files for visulization
+```bash
+clean_dir="/mnt/Leonof/4_TeparyGenomics/02_SweeD/clean"
+SweeD_dir="/mnt/Leonof/4_TeparyGenomics/02_SweeD"
+
+for i in $(seq -w 01 09);
+do
+
+  tail -n +3 \
+    ${SweeD_dir}/SweeD_Report.Tepary-cultivar.Chr${i}.50kb | awk 'BEGIN {OFS="\t"} NR == 1 {print $0, "Class"} NR > 1 {print $0, "cultivar"}' > ${clean_dir}/SweeD_Report.Tepary-cultivar.Chr${i}.50kb.clean
+
+  tail -n +3 \
+    ${SweeD_dir}/SweeD_Report.Tepary-wild.Chr${i}.50kb | awk 'BEGIN {OFS="\t"} NR == 1 {print $0, "Class"} NR > 1 {print $0, "wild"}' > ${clean_dir}/SweeD_Report.Tepary-wild.Chr${i}.50kb.clean
+
+  cat ${clean_dir}/SweeD_Report.Tepary-wild.Chr${i}.50kb.clean ${clean_dir}/SweeD_Report.Tepary-cultivar.Chr${i}.50kb.clean > ${clean_dir}/SweeD_Report.Tepary-all.Chr${i}.50kb.clean
+
+done
+```
+
+
