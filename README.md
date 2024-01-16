@@ -6,6 +6,9 @@
 
 Tepary bean diversity panel includes **342 samples** for population genomic studies. The sequencing was performed with Illumina short reads platform (PE 150 bp) along with the depth ranged from 7.78 to 16.69 (calculated based on reference genome size: 512.6 Mb). Please refer [**summary**](https://docs.google.com/spreadsheets/d/1NlpSLPAWTAu47ZDhKmWScodSrdvKM34cjbY-7dVPOvA/edit#gid=0) for details, including the reads number, reads trimming ratio, mapping rate, unique mapping rate, and etc. All raw reads of these accessions are stored on in-house server workspace (see the following workflow for details). 
 
+<img width="778" alt="image" src="https://github.com/Leon-Yu0320/Tepary-Genomic-Studies/assets/69836931/658954f8-9278-4cdb-962e-d7cb12fc0c40">
+
+
 
 - [**Genomic analysis of Tepary bean diversity panel**](#genomic-analysis-of-tepary-bean-diversity-panel)
   - [Varaints calling data process](#varaints-calling-data-process)
